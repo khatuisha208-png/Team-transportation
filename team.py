@@ -6,7 +6,6 @@ import numpy as np
 st.set_page_config(page_title="Responsive Logistics Sim", layout="wide")
 st.title("⚡ Responsive State-Wide Logistics Strategy")
 st.markdown("_Strategy: Maximizing Throughput via Opportunistic Capacity Harvesting_")
-
 # 2. STRATEGIC INPUTS
 with st.container():
     col1, col2, col3 = st.columns(3)
