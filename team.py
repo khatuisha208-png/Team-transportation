@@ -3,76 +3,96 @@ import pandas as pd
 import numpy as np
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title="TransitFreight India AI", layout="wide")
+st.set_page_config(page_title="TransitFreight AI: Yield Optimizer", layout="wide")
 
-st.title("🚌 TransitFreight: Indian Bus-Logistics AI")
-st.markdown("### Dynamic Pricing & Profit Optimizer (₹ / $ft^3$)")
+st.title("🚌 TransitFreight: AI Exponential Yield Model")
+st.markdown("### Dynamic Pricing for Indian Bus Logistics (₹ / $ft^3$)")
 
-# --- SIDEBAR: LOCALIZED VARIABLES ---
-st.sidebar.header("📦 Package Details")
+# --- SIDEBAR: INPUTS ---
+st.sidebar.header("📦 Logistics Parameters")
 n_boxes = st.sidebar.slider("Number of Boxes", 1, 100, 20)
 avg_weight = st.sidebar.number_input("Avg Weight (kg)", value=10.0)
 avg_vol = st.sidebar.number_input("Avg Volume (Cubic Feet - $ft^3$)", value=2.0)
 bus_capacity = st.sidebar.slider("Bus Hold Capacity ($ft^3$)", 100, 500, 300)
 
-st.sidebar.header("💰 Financials (INR)")
-base_fee = st.sidebar.number_input("Base Handling Fee (₹)", value=150.0)
-op_cost_per_box = st.sidebar.number_input("Our Handling Cost/Box (₹)", value=40.0)
-bus_cut_pct = st.sidebar.slider("Bus Operator Commission (%)", 0, 100, 30)
+st.sidebar.header("⚙️ Model Sensitivity")
+# 'k' controls how aggressively the price rises as space disappears
+k_sensitivity = st.sidebar.slider("Price Sensitivity (k)", 0.5, 3.0, 1.5)
 
-# --- PRICING LOGIC ---
-def get_india_metrics(n, w, v, cap):
-    total_v = n * v
-    utilization = min(total_v / cap, 1.0)
+st.sidebar.header("💰 Financials (INR)")
+base_fee = st.sidebar.number_input("Base Fee (₹)", value=200.0)
+op_cost = st.sidebar.number_input("Handling Cost/Box (₹)", value=50.0)
+bus_cut_pct = st.sidebar.slider("Bus Operator Cut (%)", 10, 50, 30) / 100
+
+# --- THE EXPONENTIAL YIELD ENGINE ---
+def calculate_yield_price(n, w, v, cap, k):
+    # 1. Calculate Base Price (Linear Cost-Plus)
+    # Using India-specific rates (₹15 per kg, ₹60 per cubic foot)
+    unit_base = base_fee + (w * 15) + (v * 60)
     
-    # Base Price calculation: Base + (Weight * ₹10) + (Vol * ₹50)
-    # In India, volume takes priority in buses due to space constraints
-    unit_base = base_fee + (w * 10) + (v * 50)
+    # 2. Utilization Ratio (Current Space / Total Space)
+    total_volume_needed = n * v
+    utilization = total_volume_needed / cap
     
-    # Dynamic Surge Logic
-    # If the bus is more than 60% full, prices spike to prioritize high-value goods
-    if utilization < 0.6:
-        surge = 1.0
-    elif utilization < 0.9:
-        surge = 1.25 # 25% Surge
-    else:
-        surge = 1.25 + (utilization - 0.9) * 10 # Exponential Spike up to 2x+
+    # 3. Exponential Scarcity Function: Price = Base * e^(k * util)
+    # This replaces "if/else" heuristic logic with a continuous curve
+    surge_multiplier = np.exp(k * utilization)
     
-    final_unit_price = unit_base * surge
-    rev = final_unit_price * n
-    partner_payout = rev * (bus_cut_pct / 100)
-    cost = (op_cost_per_box * n) + partner_payout
-    prof = rev - cost
+    # Ensure utilization doesn't break math if it exceeds 100%
+    clamped_util = min(utilization, 1.0)
     
-    return round(final_unit_price, 2), round(prof, 2), round(utilization * 100, 1)
+    final_price = unit_base * surge_multiplier
+    
+    # 4. Profit Calculation
+    revenue = final_price * n
+    # Costs = Handling + Bus Owner's Share
+    total_costs = (op_cost * n) + (revenue * bus_cut_pct)
+    net_profit = revenue - total_costs
+    
+    return {
+        "unit_price": round(final_price, 2),
+        "total_revenue": round(revenue, 2),
+        "profit": round(net_profit, 2),
+        "utilization": round(clamped_util * 100, 1),
+        "multiplier": round(surge_multiplier, 2)
+    }
 
 # --- EXECUTION ---
-u_price, u_profit, u_util = get_metrics = get_india_metrics(n_boxes, avg_weight, avg_vol, bus_capacity)
+results = calculate_yield_price(n_boxes, avg_weight, avg_vol, bus_capacity, k_sensitivity)
 
-# --- KPI DISPLAY ---
-col1, col2, col3 = st.columns(3)
-col1.metric("Price per Box", f"₹{u_price}")
-col2.metric("Est. Net Profit", f"₹{u_profit:,.2f}")
-col3.metric("Bus Space Used", f"{u_util}%")
+# --- KPI DASHBOARD ---
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Current Price", f"₹{results['unit_price']}")
+c2.metric("Yield Multiplier", f"{results['multiplier']}x")
+c3.metric("Net Profit", f"₹{results['profit']:,.2f}")
+c4.metric("Capacity Used", f"{results['utilization']}%")
 
 st.divider()
 
-# --- CHART 1: THE PROFIT "KICK" ---
-st.subheader("📈 Profit Scalability (Dynamic Surge Effect)")
-st.write("As more boxes are booked, the price per box increases, leading to non-linear profit growth.")
+# --- VISUALIZATION: THE YIELD CURVE ---
+st.subheader("📈 Yield Curve: Price vs. Capacity Utilization")
+st.write("This graph shows how the Exponential Model automatically manages scarcity.")
 
-box_counts = range(1, 101)
-data_points = []
-for b in box_counts:
-    p_box, p_total, _ = get_india_metrics(b, avg_weight, avg_vol, bus_capacity)
-    data_points.append({"Boxes": b, "Total Profit (₹)": p_total, "Unit Price (₹)": p_box})
+# Generate data for the curve
+sim_n = np.arange(1, int(bus_capacity/avg_vol) + 5)
+curve_data = []
+for n in sim_n:
+    res = calculate_yield_price(n, avg_weight, avg_vol, bus_capacity, k_sensitivity)
+    curve_data.append({
+        "Boxes": n,
+        "Price per Box (₹)": res['unit_price'],
+        "Total Profit (₹)": res['profit']
+    })
 
-df_scaling = pd.DataFrame(data_points).set_index("Boxes")
-st.line_chart(df_scaling[["Total Profit (₹)"]])
+df = pd.DataFrame(curve_data).set_index("Boxes")
 
-# --- CHART 2: REVENUE VS VOLUME ---
-st.subheader("📊 Space Utilization vs. Unit Price")
-st.write("This bar chart shows how the AI raises prices as the $ft^3$ capacity hits the limit.")
-st.bar_chart(df_scaling[["Unit Price (₹)"]])
+# Native Streamlit Charts (Failsafe)
+col_left, col_right = st.columns(2)
+with col_left:
+    st.write("**Unit Price Growth (₹)**")
+    st.line_chart(df["Price per Box (₹)"])
+with col_right:
+    st.write("**Cumulative Profit Scalability (₹)**")
+    st.area_chart(df["Total Profit (₹)"])
 
-st.info("💡 Note: In this model, Volume ($ft^3$) is the primary driver of surge pricing because bus luggage space is a finite physical constraint.")
+st.success(f"Model Summary: At {results['utilization']}% capacity, the scarcity multiplier is {results['multiplier']}x.")
