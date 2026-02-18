@@ -1,67 +1,50 @@
-import streamlit as st
 import pandas as pd
 import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_absolute_error
 
-# 1. SETUP
-st.set_page_config(page_title="Responsive Startup Sim", layout="wide")
-st.title("🚀 Strategic Logistics: Cost Leadership + Responsiveness")
-
-# 2. STRATEGY CONTROLS
-st.sidebar.header("Strategy Settings")
-# How 'Aggressive' are we at catching every bus?
-response_aggression = st.sidebar.slider("Responsiveness (Bus Catching Rate %)", 50, 100, 90)
-
-col1, col2, col3 = st.columns(3)
-with col1:
-    avg_orders = st.number_input("Average Daily Orders", value=1000)
-with col2:
-    num_buses = st.number_input("Buses passing Hub per Day", value=150)
-with col3:
-    bus_capacity_pkg = st.number_input("Avg Slack Space (Packages/Bus)", value=10)
-
-# 3. ENGINE: MEASURING DWELL TIME
-data = []
-inventory = [] # List to track 'age' of each package for responsiveness
-backlog_count = 0
-total_shipped = 0
-
-for day in range(1, 31):
-    # New Arrivals
-    new_pkgs = np.random.poisson(avg_orders)
-    backlog_count += new_pkgs
-    
-    # Calculate Today's Available 'Hitchhiker' Capacity
-    # We factor in our 'Aggression' (Responsiveness)
-    available_slots = num_buses * bus_capacity_pkg * (response_aggression / 100)
-    # Adding some randomness to bus availability
-    available_slots = int(available_slots * np.random.uniform(0.7, 1.2))
-    
-    # Shipment Action
-    shipped = min(backlog_count, available_slots)
-    backlog_count -= shipped
-    total_shipped += shipped
-    
-    # Calculate Dwell Time (Simple proxy: Backlog / Daily Capacity)
-    dwell_time_hrs = (backlog_count / max(1, available_slots)) * 24
-    
-    data.append({
-        "Day": day,
-        "Backlog": backlog_count,
-        "Hours of Delay": dwell_time_hrs,
-        "Throughput": shipped
-    })
+# 1. MOCK DATA GENERATION 
+# In a real scenario, this comes from your GPS/Ticketing API
+data = {
+    'route_id': np.random.randint(101, 110, 1000),
+    'hour_of_day': np.random.randint(6, 22, 1000), # 6 AM to 10 PM
+    'day_of_week': np.random.randint(0, 7, 1000), # 0=Monday
+    'is_holiday': np.random.choice([0, 1], 1000, p=[0.9, 0.1]),
+    'historical_passenger_count': np.random.randint(5, 50, 1000),
+    'available_cargo_volume_sqft': np.random.uniform(5.0, 25.0, 1000) # Target Variable
+}
 
 df = pd.DataFrame(data)
 
-# 4. DASHBOARD
-st.divider()
-k1, k2, k3 = st.columns(3)
-k1.metric("Total Throughput", f"{total_shipped:,} Pkgs")
-k2.metric("Avg. Response Delay", f"{round(df['Hours of Delay'].mean(), 1)} Hours")
-k3.metric("Cost Efficiency", "MAX (Shared Asset Model)")
+# 2. FEATURE ENGINEERING
+X = df[['route_id', 'hour_of_day', 'day_of_week', 'is_holiday', 'historical_passenger_count']]
+y = df['available_cargo_volume_sqft']
 
-st.subheader("Response Speed (Wait Time at Bus Stand)")
-st.line_chart(df.set_index("Day")["Hours of Delay"])
+# Split data: 80% Training, 20% Testing
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-st.subheader("Inventory Pressure (Backlog)")
-st.area_chart(df.set_index("Day")["Backlog"])
+# 3. MODEL INITIALIZATION
+# RandomForest is robust for logistics forecasting
+model = RandomForestRegressor(n_estimators=100, random_state=42)
+
+# 4. TRAINING
+model.fit(X_train, y_train)
+
+# 5. PREDICTION LOGIC
+def predict_bus_space(route, hour, day, passengers):
+    """
+    Predicts if a bus on a specific route will have enough space for a shipment.
+    """
+    input_data = pd.DataFrame([[route, hour, day, 0, passengers]], 
+                              columns=X.columns)
+    prediction = model.predict(input_data)
+    return round(prediction[0], 2)
+
+# Example: Predict space for Route 105 at 5 PM on a Wednesday
+space_available = predict_bus_space(105, 17, 2, 35)
+print(f"Predicted Available Space for Route 105: {space_available} sq ft")
+
+# 6. EVALUATION
+predictions = model.predict(X_test)
+print(f"Model Mean Absolute Error: {mean_absolute_error(y_test, predictions):.2f} sq ft")
