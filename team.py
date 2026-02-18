@@ -1,78 +1,77 @@
-import numpy as np
-import random
 import streamlit as st
+import numpy as np
+import pandas as pd
+import random
 
-# 1. ENVIRONMENT SETUP
-# States: 0=Low Traffic, 1=Moderate, 2=Peak Hour
-# Actions: 0=Send Now, 1=Wait 15 Mins, 2=Reroute to different line
-n_states = 3
-n_actions = 3
+# --- 1. THE ENVIRONMENT (Historical Bus Data) ---
+# Simulating a database of bus slots: [Hour, Day_of_Week, Avg_Occupancy, Reliability_Score]
+bus_slots = []
+for day in range(7): # 0-6 (Mon-Sun)
+    for hour in range(6, 22): # 6 AM to 10 PM
+        occupancy = random.uniform(0.1, 0.9)
+        reliability = random.uniform(0.7, 0.99)
+        bus_slots.append([hour, day, occupancy, reliability])
 
-# Initialize Q-Table with zeros
-q_table = np.zeros((n_states, n_actions))
+bus_df = pd.DataFrame(bus_slots, columns=['hour', 'day', 'occupancy', 'reliability'])
 
-# Hyperparameters
+# --- 2. THE RL AGENT (Q-Learning) ---
+# State: (Day, Hour) | Action: (Accept Slot, Reject & Try Next)
+q_table = np.zeros((len(bus_slots), 2))
 learning_rate = 0.1
-discount_factor = 0.9
-exploration_rate = 0.2 
-epochs = 1000
+discount = 0.95
 
-# 2. SIMULATED REWARD FUNCTION
-def get_reward(state, action):
-    # If it's Peak Hour (State 2) and we try to 'Send Now' (Action 0), penalty is high
-    if state == 2 and action == 0:
-        return -10 # Penalty for putting cargo on a crowded bus
-    # If it's Peak Hour (State 2) and we 'Wait' (Action 1), small reward
-    elif state == 2 and action == 1:
-        return 5 
-    # If it's Low Traffic (State 0) and we 'Send Now' (Action 0), high reward
-    elif state == 0 and action == 0:
-        return 10
-    else:
-        return 1 # Neutral/Small progress
+# Training the agent to recognize "Good" slots
+for _ in range(500):
+    idx = random.randint(0, len(bus_slots)-1)
+    # Reward logic: High reward for low occupancy (cheap) and high reliability (fast)
+    reward = (1 - bus_df.iloc[idx]['occupancy']) * 10 + (bus_df.iloc[idx]['reliability'] * 5)
+    q_table[idx, 1] = reward # Action 1 is "Suggest this slot"
 
-# 3. TRAINING THE AGENT
-for i in range(epochs):
-    state = random.randint(0, n_states - 1)
-    
-    # Explore vs Exploit
-    if random.uniform(0, 1) < exploration_rate:
-        action = random.randint(0, n_actions - 1)
-    else:
-        action = np.argmax(q_table[state])
-    
-    reward = get_reward(state, action)
-    
-    # Q-Table Update (Bellman Equation)
-    old_value = q_table[state, action]
-    next_max = np.max(q_table[state])
-    
-    # New Q Value
-    q_table[state, action] = (1 - learning_rate) * old_value + \
-                             learning_rate * (reward + discount_factor * next_max)
+# --- 3. STREAMLIT UI: CUSTOMER BOOKING ---
+st.title("🚌 AI-Powered Smart Bus Booking")
+st.subheader("Strategy A: Responsiveness via RL Optimization")
 
-# 4. STREAMLIT INTERFACE
-st.title("🤖 RL Dispatcher: Strategy A")
-st.write("This model uses **Reinforcement Learning** to decide the most responsive transport action.")
+with st.sidebar:
+    st.header("Shipment Details")
+    d_date = st.date_input("Expected Delivery Date")
+    weight = st.number_input("Weight (kg)", 1.0, 50.0, 5.0)
+    vol = st.number_input("Volume (cu ft)", 1.0, 20.0, 2.0)
+    fragile = st.toggle("Fragile Item")
 
-current_env_state = st.select_slider(
-    'Select Current Traffic/Bus Load State',
-    options=[0, 1, 2],
-    value=1,
-    help="0: Empty/Night, 1: Moderate, 2: Peak Hour"
-)
+# Input for Booking
+st.write("### Find Best Delivery Window")
+col1, col2 = st.columns(2)
+with col1:
+    pref_day = st.selectbox("Preferred Pickup Day", 
+                            ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"])
+with col2:
+    pref_time = st.slider("Earliest Pickup Hour", 6, 20, 9)
 
-if st.button("Run RL Dispatcher"):
-    best_action = np.argmax(q_table[current_env_state])
+# Convert Day to Index
+day_map = {"Monday":0, "Tuesday":1, "Wednesday":2, "Thursday":3, "Friday":4, "Saturday":5, "Sunday":6}
+day_idx = day_map[pref_day]
+
+if st.button("Optimize Booking"):
+    # Filter bus slots based on customer day and time
+    possible_slots = bus_df[(bus_df['day'] == day_idx) & (bus_df['hour'] >= pref_time)]
     
-    action_map = {
-        0: "🚀 DISPATCH IMMEDIATELY (High Capacity Available)",
-        1: "⏳ HOLD SHIPMENT (Next Bus has better space)",
-        2: "🔄 REROUTE (Current line too crowded, switching to alternate route)"
-    }
+    # RL Agent picks the slot with the highest Q-value
+    best_slot_idx = possible_slots.index[np.argmax(q_table[possible_slots.index, 1])]
+    result = bus_df.iloc[best_slot_idx]
     
-    st.subheader("Agent Decision:")
-    st.info(action_map[best_action])
+    # Calculate Dynamic Price (Base + Weight/Vol + Fragility Premium - Efficiency Discount)
+    base_price = 50 
+    fragile_fee = 20 if fragile else 0
+    # RL Reward influences price: More efficient slots = Cheaper for customer
+    efficiency_discount = (1 - result['occupancy']) * 15
+    final_price = base_price + (weight * 2) + (vol * 5) + fragile_fee - efficiency_discount
+
+    st.divider()
+    st.success(f"### Suggested Pickup: {pref_day} at {int(result['hour'])}:00")
     
-    st.write("### Q-Table (Agent's Memory)")
-    st.dataframe(q_table)
+    kpi1, kpi2, kpi3 = st.columns(3)
+    kpi1.metric("Dynamic Price", f"₹{round(final_price, 2)}")
+    kpi2.metric("Space Availability", f"{round((1-result['occupancy'])*100)}%")
+    kpi3.metric("Reliability Score", f"{round(result['reliability']*100)}%")
+    
+    st.info("💡 **Why this slot?** Our RL agent identified this as a low-congestion window, reducing the risk of delay and lowering your transit cost.")
