@@ -1,55 +1,100 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
 
-# 1. SETUP DATA: 24-hour cycle of a Public Bus System
-hours = list(range(24))
-# Passenger load spikes during 8am and 5pm (Peak)
-passenger_load = [5, 5, 5, 10, 30, 85, 95, 90, 60, 40, 35, 30, 40, 50, 60, 85, 95, 80, 50, 30, 20, 15, 10, 5]
-# Shipment demand (packages needing to move)
-shipment_demand = [1, 1, 2, 5, 10, 15, 20, 18, 12, 10, 8, 15, 20, 25, 30, 20, 15, 10, 5, 5, 5, 3, 2, 1]
+# --- PAGE CONFIG ---
+st.set_page_config(page_title="TransitFreight AI Optimizer", layout="wide")
 
-df = pd.DataFrame({
-    'Hour': hours,
-    'Passenger_Load': passenger_load,
-    'Shipment_Demand': shipment_demand
-})
+# --- PRICING ENGINE LOGIC ---
+class PricingEngine:
+    def __init__(self, base_fee=10, weight_rate=2.0, vol_rate=0.5, capacity=100):
+        self.base_fee = base_fee
+        self.weight_rate = weight_rate
+        self.vol_rate = vol_rate
+        self.capacity = capacity
 
-# 2. THE AI LOGIC (Time Series Alignment)
-# We calculate a 'Cost-Efficiency Index'
-# High load = High Cost (Spot pricing / No space)
-# Low load = Low Cost (Bulk monthly agreement)
-df['Shipping_Cost'] = df['Passenger_Load'].apply(lambda x: 10 if x < 30 else (25 if x < 70 else 60))
+    def calculate_price(self, weight, volume, current_occupancy):
+        # Linear Base Price
+        base = self.base_fee + (weight * self.weight_rate) + (volume * self.vol_rate)
+        
+        # Dynamic Surge Logic
+        utilization = current_occupancy / self.capacity
+        if utilization < 0.5:
+            surge = 1.0
+        elif utilization < 0.8:
+            surge = 1.25
+        else:
+            # Exponential surge as we hit the limit
+            surge = 1.25 + (utilization - 0.8) * 8 
+        
+        return round(base * surge, 2), surge
 
-# Transit Time Score: High during traffic peaks (morning/evening)
-df['Time_Delay_Min'] = [5, 5, 5, 10, 25, 45, 50, 45, 30, 20, 15, 15, 20, 25, 35, 45, 50, 40, 25, 15, 10, 5, 5, 5]
+# --- STREAMLIT UI ---
+st.title("🚌 TransitFreight: AI Dynamic Pricing Dashboard")
+st.markdown("Optimization of unused public bus space using Time-Series Demand and Multivariate Linear Pricing.")
 
-# 3. STREAMLIT DASHBOARD
-st.set_page_config(page_title="Logi-Bus Optimizer", layout="wide")
-st.title("🚌 Logi-Bus: Cost Leadership AI")
-st.write("Aligning **Cargo Demand** with **Bus Capacity** using Multivariate Time Series Logic.")
+# Sidebar Controls
+st.sidebar.header("📦 Package Variables")
+n_boxes = st.sidebar.slider("Number of Boxes in Batch", 1, 50, 10)
+avg_weight = st.sidebar.number_input("Average Weight per Box (kg)", value=5.0)
+avg_vol = st.sidebar.number_input("Average Volume per Box (Liters)", value=10.0)
 
-# Multi-element chart using Streamlit's native engine
-st.subheader("Hourly Analysis: Cost vs. Transit Delay")
-chart_data = df.set_index('Hour')[['Shipping_Cost', 'Time_Delay_Min']]
-st.line_chart(chart_data)
+st.sidebar.header("⚙️ Cost & Capacity")
+bus_cap = st.sidebar.slider("Bus Hold Capacity (L)", 50, 500, 200)
+op_cost = st.sidebar.number_input("Handling Cost per Box ($)", value=3.0)
+revenue_share = st.sidebar.slider("Bus Company Share (%)", 0, 100, 40) / 100
 
-# 4. DECISION ENGINE (The Optimization)
-# Find the hour with the lowest cost that also has low delay
-optimal_df = df[df['Passenger_Load'] < 40] # Filter for off-peak only
-best_row = optimal_df.loc[optimal_df['Time_Delay_Min'].idxmin()]
-best_hour = int(best_row['Hour'])
+# --- CALCULATIONS ---
+engine = PricingEngine(capacity=bus_cap)
+total_vol_needed = n_boxes * avg_vol
+unit_price, surge_multiplier = engine.calculate_price(avg_weight, avg_vol, total_vol_needed)
 
+total_revenue = unit_price * n_boxes
+total_costs = (op_cost * n_boxes) + (total_revenue * revenue_share)
+net_profit = total_revenue - total_costs
+
+# --- KPI METRICS ---
+col1, col2, col3, col4 = st.columns(4)
+col1.metric("Unit Price", f"${unit_price}")
+col2.metric("Surge Multiplier", f"{surge_multiplier:.2f}x")
+col3.metric("Total Revenue", f"${total_revenue:,.2f}")
+col4.metric("Net Profit", f"${net_profit:,.2f}", delta=f"{((net_profit/total_revenue)*100):.1f}% Margin")
+
+# --- VISUALIZATIONS ---
 st.divider()
+chart_col1, chart_col2 = st.columns(2)
 
-col1, col2 = st.columns(2)
-with col1:
-    st.metric("Optimal Dispatch Time", f"{best_hour}:00", delta="Off-Peak Window")
-    st.write("**Strategy:** Cost Leadership requires using pre-paid 'Void Space'.")
+with chart_col1:
+    st.subheader("Profit Scalability")
+    # Simulate different box counts
+    counts = np.arange(1, 61)
+    profits = []
+    for c in counts:
+        p, _ = engine.calculate_price(avg_weight, avg_vol, c * avg_vol)
+        rev = p * c
+        cost = (op_cost * c) + (rev * revenue_share)
+        profits.append(rev - cost)
+    
+    fig, ax = plt.subplots()
+    ax.plot(counts, profits, color='#2ecc71', linewidth=3)
+    ax.set_xlabel("Number of Boxes")
+    ax.set_ylabel("Net Profit ($)")
+    ax.fill_between(counts, profits, color='#2ecc71', alpha=0.2)
+    st.pyplot(fig)
 
-with col2:
-    potential_savings = 100 - (best_row['Shipping_Cost'] / df['Shipping_Cost'].max() * 100)
-    st.metric("Estimated Cost Savings", f"{int(potential_savings)}%", delta="vs. Traditional Courier")
-    st.write("**Impact:** By avoiding peak hours, we reduce variable 'Spot' fees.")
+with chart_col2:
+    st.subheader("Price Sensitivity (Weight vs Vol)")
+    # Heatmap of base price
+    w_range = np.linspace(1, 20, 10)
+    v_range = np.linspace(1, 50, 10)
+    z = np.array([[engine.calculate_price(w, v, 0)[0] for v in v_range] for w in w_range])
+    
+    fig2, ax2 = plt.subplots()
+    sns.heatmap(z, xticklabels=v_range.astype(int), yticklabels=w_range.astype(int), annot=True, fmt=".0f", cmap="YlGnBu")
+    ax2.set_xlabel("Volume (L)")
+    ax2.set_ylabel("Weight (kg)")
+    st.pyplot(fig2)
 
-st.success(f"**AI Action Plan:** Direct your couriers to the 'Hub' for the {best_hour}:00 bus. This window provides the lowest cost-per-package while ensuring minimal traffic delay.")
+st.success("AI Model Status: Optimal. Adjust sliders to see real-time profit impact.")
