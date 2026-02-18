@@ -1,39 +1,36 @@
-import streamlit as st
 import pandas as pd
-try:
-    from prophet import Prophet
-except ImportError:
-    st.error("Prophet is not installed. Please add 'prophet' to your requirements.txt")
+import numpy as np
+import matplotlib.pyplot as plt
+from statsmodels.tsa.statespace.sarimax import SARIMAX
 
-# Rest of your demand-to-schedule aligner code...
+# 1. Generate 24 months of synthetic demand data
+# Base demand + seasonal peak (December) + general growth trend
+np.random.seed(42)
+months = pd.date_range(start='2024-01-01', periods=24, freq='MS')
+base_demand = np.array([100, 110, 120, 115, 130, 150, 170, 160, 140, 130, 190, 250,
+                        120, 130, 145, 140, 160, 185, 210, 200, 175, 165, 240, 310])
+df = pd.DataFrame({'Date': months, 'Demand': base_demand})
+df.set_index('Date', inplace=True)
 
-# 1. Create Mock Data: Monthly Average Demand
-# 'ds' = datestamp, 'y' = number of shipment requests
-data = {
-    'ds': pd.date_range(start='2024-01-01', periods=24, freq='MS'),
-    'y': [120, 135, 150, 145, 160, 190, 210, 205, 180, 170, 240, 280, # 2024
-          140, 155, 175, 165, 190, 220, 250, 245, 210, 200, 290, 330]  # 2025
-}
+# 2. Fit the SARIMA Model (Order: p,d,q)(P,D,Q,s)
+# s=12 for monthly seasonality
+model = SARIMAX(df['Demand'], 
+                order=(1, 1, 1), 
+                seasonal_order=(1, 1, 1, 12))
+model_fit = model.fit(disp=False)
 
-df = pd.DataFrame(data)
+# 3. Forecast the next 6 months
+forecast = model_fit.get_forecast(steps=6)
+forecast_df = forecast.summary_frame()
 
-# 2. Initialize and Fit the Prophet Model
-# Prophet handles seasonality (like year-end spikes) automatically
-model = Prophet(yearly_seasonality=True, weekly_seasonality=False, daily_seasonality=False)
-model.fit(df)
-
-# 3. Create a future dataframe for the next 6 months
-future = model.make_future_dataframe(periods=6, freq='MS')
-
-# 4. Predict demand
-forecast = model.predict(future)
-
-# 5. Visualize the Forecast
-fig1 = model.plot(forecast)
-plt.title("Logistics Demand Forecast (Monthly)")
-plt.xlabel("Date")
-plt.ylabel("Shipment Volume")
+# 4. Plotting the results
+plt.figure(figsize=(10, 5))
+plt.plot(df.index, df['Demand'], label='Historical Demand', marker='o')
+plt.plot(forecast_df.index, forecast_df['mean'], label='AI Forecast', color='red', linestyle='--')
+plt.fill_between(forecast_df.index, forecast_df['mean_ci_lower'], forecast_df['mean_ci_upper'], color='pink', alpha=0.3)
+plt.title("Logistics Shipment Demand: 6-Month AI Projection")
+plt.legend()
 plt.show()
 
-# Display the specific predicted values for the next 6 months
-print(forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].tail(6))
+print("Forecasted Demand for next 3 months:")
+print(forecast_df['mean'].head(3))
