@@ -1,4 +1,4 @@
-prophet
 pandas
+statsmodels
 matplotlib
-streamlit
+numpy
