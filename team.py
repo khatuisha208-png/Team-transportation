@@ -1,50 +1,76 @@
+import requests
 import pandas as pd
-import numpy as np
-from sklearn.model_selection import train_test_split
+from datetime import datetime
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_absolute_error
 
-# 1. MOCK DATA GENERATION 
-# In a real scenario, this comes from your GPS/Ticketing API
-data = {
-    'route_id': np.random.randint(101, 110, 1000),
-    'hour_of_day': np.random.randint(6, 22, 1000), # 6 AM to 10 PM
-    'day_of_week': np.random.randint(0, 7, 1000), # 0=Monday
-    'is_holiday': np.random.choice([0, 1], 1000, p=[0.9, 0.1]),
-    'historical_passenger_count': np.random.randint(5, 50, 1000),
-    'available_cargo_volume_sqft': np.random.uniform(5.0, 25.0, 1000) # Target Variable
-}
+# --- SIMULATED TRANSIT API CONFIG ---
+# In reality, this would be your City's Transport API (e.g., Delhi Transit, Transport for London)
+TRANSIT_API_URL = "https://api.citytransit.com/v1/live_bus_status"
 
-df = pd.DataFrame(data)
+class LogisticsAI:
+    def __init__(self):
+        # The model is pre-trained on historical "Bus Occupancy vs Cargo Space"
+        self.model = RandomForestRegressor(n_estimators=100)
+        self._train_mock_model()
 
-# 2. FEATURE ENGINEERING
-X = df[['route_id', 'hour_of_day', 'day_of_week', 'is_holiday', 'historical_passenger_count']]
-y = df['available_cargo_volume_sqft']
+    def _train_mock_model(self):
+        # Simulated historical training data: [Route_ID, Hour, Day, Pax_Count]
+        # Target: Available_Cargo_Volume (Cubic Feet)
+        train_x = [[101, 8, 0, 45], [101, 14, 0, 10], [102, 9, 1, 50], [102, 21, 1, 5]]
+        train_y = [2.5, 15.0, 1.0, 18.5]
+        self.model.fit(train_x, train_y)
 
-# Split data: 80% Training, 20% Testing
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    def get_live_bus_data(self, route_id):
+        """
+        Scenario: Fetching real-time passenger load from the Bus API.
+        If the bus is 90% full of people, cargo space is low.
+        """
+        # Mocking an API Response
+        response = {
+            "status": "success",
+            "data": {
+                "bus_id": "BUS-99",
+                "current_pax_count": 38,  # Data from electronic ticketing/sensors
+                "eta_minutes": 12
+            }
+        }
+        return response['data']
 
-# 3. MODEL INITIALIZATION
-# RandomForest is robust for logistics forecasting
-model = RandomForestRegressor(n_estimators=100, random_state=42)
+    def predict_responsiveness(self, route_id):
+        """
+        The Core Logic: Decide if we should send the shipment on THIS bus
+        or wait for the next one to ensure 'Responsiveness'.
+        """
+        live_data = self.get_live_bus_data(route_id)
+        now = datetime.now()
+        
+        # Prepare feature vector for AI
+        features = [[route_id, now.hour, now.weekday(), live_data['current_pax_count']]]
+        
+        predicted_space = self.model.predict(features)[0]
+        
+        # Business Logic: We need at least 5 cubic feet for a standard shipment
+        if predicted_space >= 5.0:
+            return {
+                "decision": "PROCEED",
+                "bus_id": live_data['bus_id'],
+                "eta": live_data['eta_minutes'],
+                "predicted_space": f"{predicted_space} cu ft"
+            }
+        else:
+            return {
+                "decision": "REROUTE",
+                "reason": "Insufficient Space",
+                "next_best_route": "Route-102 (ETA 25m)"
+            }
 
-# 4. TRAINING
-model.fit(X_train, y_train)
+# --- EXECUTION ---
+startup_ai = LogisticsAI()
+shipment_plan = startup_ai.predict_responsiveness(route_id=101)
 
-# 5. PREDICTION LOGIC
-def predict_bus_space(route, hour, day, passengers):
-    """
-    Predicts if a bus on a specific route will have enough space for a shipment.
-    """
-    input_data = pd.DataFrame([[route, hour, day, 0, passengers]], 
-                              columns=X.columns)
-    prediction = model.predict(input_data)
-    return round(prediction[0], 2)
-
-# Example: Predict space for Route 105 at 5 PM on a Wednesday
-space_available = predict_bus_space(105, 17, 2, 35)
-print(f"Predicted Available Space for Route 105: {space_available} sq ft")
-
-# 6. EVALUATION
-predictions = model.predict(X_test)
-print(f"Model Mean Absolute Error: {mean_absolute_error(y_test, predictions):.2f} sq ft")
+print(f"--- Shipment Dispatch Control ---")
+print(f"Action: {shipment_plan['decision']}")
+if shipment_plan['decision'] == "PROCEED":
+    print(f"Assign to: {shipment_plan['bus_id']} (Arriving in {shipment_plan['eta']} mins)")
+else:
+    print(f"Wait: {shipment_plan['reason']}. Strategy: {shipment_plan['next_best_route']}")
