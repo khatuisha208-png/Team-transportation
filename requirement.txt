@@ -1,6 +1,4 @@
+prophet
 pandas
-scikit-learn
-numpy
-requests
-prophets
 matplotlib
+streamlit
