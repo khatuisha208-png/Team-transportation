@@ -1,6 +1,11 @@
+import streamlit as st
 import pandas as pd
-from prophet import Prophet
-import matplotlib.pyplot as plt
+try:
+    from prophet import Prophet
+except ImportError:
+    st.error("Prophet is not installed. Please add 'prophet' to your requirements.txt")
+
+# Rest of your demand-to-schedule aligner code...
 
 # 1. Create Mock Data: Monthly Average Demand
 # 'ds' = datestamp, 'y' = number of shipment requests
