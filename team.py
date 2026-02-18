@@ -1,46 +1,77 @@
 import streamlit as st
-import numpy as np
 import pandas as pd
+import numpy as np
+import random
 
-# --- 1. COMPANY REVENUE LOGIC ---
-st.set_page_config(layout="wide")
-st.title("🚛 Startup Admin: Network Load Orchestrator")
-st.markdown("### Focus: Strategy A (Responsiveness) & Cost Leadership Optimization")
+st.set_page_config(layout="wide", page_title="Admin Logistics Command")
 
-# Simulated System Stats
-col_a, col_b, col_c, col_d = st.columns(4)
-col_a.metric("Total Active Shipments", "1,240")
-col_b.metric("Avg. Bus Utilization", "42%", "+5% vs Last Week")
-col_c.metric("On-Time Delivery", "98.2%", "AI Optimized")
-col_d.metric("Daily Revenue", "₹45,200", "High Margin")
+# 1. DATA INFRASTRUCTURE (The Environment)
+routes = ["Mumbai-Pune", "Mumbai-Nagpur", "Mumbai-Nashik"]
+months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+weeks = ["Week 1", "Week 2", "Week 3", "Week 4"]
 
-# --- 2. ADMIN INPUT: THE GLOBAL DEMAND POOL ---
-st.sidebar.header("Batch Processing Controls")
-target_day = st.sidebar.selectbox("View Strategy for:", ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"])
-urgency_filter = st.sidebar.slider("Minimum Priority Score", 0, 100, 50)
+# Mocking historical RL Data: Space Availability & Reliability per Route/Month/Week
+# In reality, this would be a trained model saved as a .pkl file
+data_log = []
+for r in routes:
+    for m in months:
+        for w in weeks:
+            # Logic: Nagpur is less reliable in Monsoon (July); Pune is busy on Weekends
+            base_space = random.randint(20, 100)
+            if r == "Mumbai-Nagpur" and m in ["July", "August"]:
+                base_space -= 15 # Weather delays
+            data_log.append([r, m, w, base_space, random.uniform(0.7, 0.98)])
 
-# --- 3. REINFORCEMENT LEARNING: BATCH ALLOCATOR ---
-# The Agent analyzes all pending orders and assigns them to the "Best" bus routes
-st.write(f"## {target_day} Allocation Strategy")
+df_master = pd.DataFrame(data_log, columns=['Route', 'Month', 'Week', 'Available_Space', 'Reliability'])
 
-# Mock data representing the "Environment" the RL Agent manages
-data = {
-    "Route_ID": ["RT-101", "RT-202", "RT-303", "RT-105", "RT-404"],
-    "Pending_Volume_cuft": [15.5, 42.0, 10.2, 5.0, 22.1],
-    "Predicted_Bus_Space": [20.0, 35.0, 15.0, 5.0, 25.0],
-    "Fragile_Count": [2, 12, 1, 0, 5],
-    "Profit_Potential": [0.85, 0.40, 0.92, 0.60, 0.75] # Agent's calculated reward
-}
-df = pd.DataFrame(data)
+# 2. COMPANY ADMIN DASHBOARD
+st.title("🚛 Regional Network Optimization: Admin View")
+st.sidebar.header("Network Filters")
 
-# RL Logic: The agent flags routes that are "High Risk" (Low space vs High Volume)
-df['AI_Decision'] = df.apply(lambda x: "🚀 AUTHORIZE" if x['Predicted_Bus_Space'] > x['Pending_Volume_cuft'] else "⚠️ REROUTE", axis=1)
+selected_route = st.sidebar.selectbox("Select Core Route", routes)
+selected_month = st.sidebar.select_slider("Review Month", options=months)
 
-# Display the "Company Command Center"
-st.table(df)
+# 3. RL INSIGHT GENERATION (The "Brain")
+st.header(f"Strategy Analysis: {selected_route} in {selected_month}")
 
-# --- 4. STRATEGIC ANALYSIS ---
-st.write("### RL Agent Insights")
-st.info("""
-**Agent Note:** Route **RT-202** has a bottleneck. The RL model suggests offloading 7.0 cuft to **RT-303** at the Central Interchange to maintain our **Responsiveness** guarantee without increasing costs.
-""")
+# Filter data for the view
+filtered_df = df_master[(df_master['Route'] == selected_route) & (df_master['Month'] == selected_month)]
+
+# Display Weekly Performance
+cols = st.columns(4)
+for i, row in enumerate(filtered_df.itertuples()):
+    with cols[i]:
+        st.metric(label=row.Week, value=f"{row.Available_Space} cuft", delta=f"{round(row.Reliability*100)}% Reliable")
+        
+        # RL Decision Logic (Company POV)
+        if row.Available_Space > 70:
+            st.success("Decision: AGGRESSIVE PRICING")
+            st.caption("Action: Lower rates by 15% to fill empty space.")
+        elif row.Available_Space < 30:
+            st.error("Decision: CAPACITY CRUNCH")
+            st.caption("Action: Increase price; prioritize fragile/premium.")
+        else:
+            st.warning("Decision: OPTIMIZE LOAD")
+            st.caption("Action: Consolidate small parcels.")
+
+# 4. REVENUE & DOCUMENTATION SUMMARY
+st.divider()
+st.subheader("Route-Specific Logistics Requirements")
+
+doc_col1, doc_col2 = st.columns(2)
+
+with doc_col1:
+    st.markdown("""
+    ### 📑 Mandatory Compliance
+    * **Inter-City E-Way Bill:** Required for Mumbai-Nagpur/Nashik (high-value agri/industrial).
+    * **Octroi/Local Body Tax Forms:** Essential for Pune-Mumbai entry points.
+    * **Transit Insurance (High-Speed):** Specifically for the Expressway (Mumbai-Pune).
+    """)
+
+with doc_col2:
+    st.markdown(f"""
+    ### 📈 Strategic Focus for {selected_route}
+    * **Responsiveness:** Use AI to predict Pune Expressway traffic during 'Week 4' (End of month rush).
+    * **Differentiation:** Offer 'Cold-Chain' tracking for Mumbai-Nashik (Agri-logistics focus).
+    * **Cost Leadership:** Target Mumbai-Nagpur night buses for heavy, non-urgent bulk cargo.
+    """)
