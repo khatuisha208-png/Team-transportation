@@ -2,60 +2,51 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-st.set_page_config(layout="wide")
-st.title("📊 Operational Command Center: AI Dispatch")
-
-# 1. ROUTE INTELLIGENCE DATA
-# This data represents the "State" the AI observes to predict free space
-route_data = {
-    "Mumbai-Pune": {"dist": 150, "avg_bus_freq": 15, "historical_fill_rate": 0.65},
-    "Mumbai-Nagpur": {"dist": 800, "avg_bus_freq": 4, "historical_fill_rate": 0.40},
-    "Mumbai-Nashik": {"dist": 170, "avg_bus_freq": 8, "historical_fill_rate": 0.55}
+# --- INDUSTRY STANDARD DEMAND DATA (Small Scale) ---
+# Routes: Mumbai-Pune (Fast/Frequent), Mumbai-Nagpur (Long-haul), Mumbai-Nashik (Agri-Industrial)
+data = {
+    "Route": ["Mumbai-Pune", "Mumbai-Nagpur", "Mumbai-Nashik"],
+    "Daily_Demand_Units": [120, 45, 85],       # Standard daily parcel count for a startup
+    "Avg_Weight_kg": [5.2, 12.5, 8.0],          # Industry average for bus-hold parcels
+    "Current_Lead_Time_hr": [4, 18, 5],         # AI-optimized time
+    "Market_Lead_Time_hr": [12, 48, 15],        # Traditional courier time
+    "Free_Space_Forecast": [35, 60, 42]         # % of bus hold available
 }
 
-# 2. SELECTION CONTROLS
-col1, col2, col3 = st.columns(3)
-with col1:
-    route = st.selectbox("Active Route", list(route_data.keys()))
-with col2:
-    month = st.select_slider("Forecast Month", options=["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"])
-with col3:
-    priority = st.radio("Focus Area", ["Lead Time Reduction", "Space Optimization"])
+df = pd.DataFrame(data)
 
-# 3. THE AI PREDICTION ENGINE (Logic)
-# Prediction of Free Space based on Route and Seasonality
-base_fill = route_data[route]["historical_fill_rate"]
-seasonal_impact = 0.2 if month in ["Oct", "Nov", "Dec"] else -0.1 # Peak festival season
-predicted_free_space = round((1 - (base_fill + seasonal_impact)) * 100)
+st.title("🚛 Startup Admin: Strategic Dispatch Hub")
+st.subheader("Inventory & Lead Time Optimization (Company POV)")
 
-# Lead Time Calculation (Traditional vs AI-Optimized)
-trad_lead_time = 48 if route == "Mumbai-Nagpur" else 24
-ai_lead_time = trad_lead_time * 0.6 # AI reduces lead time by 40% via real-time bus matching
+# 1. STRATEGIC METRICS
+st.markdown("### 📈 Key Performance Indicators (KPIs)")
+m1, m2, m3 = st.columns(3)
+with m1:
+    # Calculating lead time reduction percentage
+    reduction = ((df['Market_Lead_Time_hr'] - df['Current_Lead_Time_hr']) / df['Market_Lead_Time_hr']).mean() * 100
+    st.metric("Avg. Lead Time Reduction", f"{int(reduction)}%", delta="Responsiveness Edge")
+with m2:
+    st.metric("System Utilization", "68%", delta="Target 85%")
+with m3:
+    st.metric("Cost Saving vs 3PL", "32%", delta="Cost Leadership")
 
-# 4. COMPANY INSIGHTS DISPLAY
-st.divider()
-kpi1, kpi2, kpi3 = st.columns(3)
+# 2. ROUTE-WISE PREDICTION TABLE
+st.markdown("### 📍 Route Forecast & Capacity Planning")
 
-with kpi1:
-    st.metric("Predicted Free Space", f"{predicted_free_space}%", delta="Available for Booking")
-    st.caption("Based on real-time bus ticketing API integration.")
+# Industry Logic: If Free Space > 50%, the AI triggers "Consolidation Mode"
+df['AI_Recommendation'] = np.where(df['Free_Space_Forecast'] > 50, "Bulk Batching", "Express Dispatch")
 
-with kpi2:
-    st.metric("Expected Delivery Time", f"{int(ai_lead_time)} Hours", delta=f"-{int(trad_lead_time - ai_lead_time)}h vs Market")
-    st.caption("Achieved via predictive route-hopping.")
+st.dataframe(df.style.highlight_max(axis=0, subset=['Free_Space_Forecast'], color='#d1e7dd'))
 
-with kpi3:
-    st.metric("Route Profitability", "High", delta="Cost Leadership Active")
-    st.caption("Utilizing 100% of existing public infrastructure.")
+# 3. DEMAND TRENDS (Weekly View for Resource Allocation)
+st.markdown("### 📊 Demand Volatility (Weekly)")
+# Industry standard: Demand peaks on Tuesday/Wednesday; dips on Sunday
+weekly_demand = pd.DataFrame({
+    'Day': ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+    'Mumbai-Pune': [110, 140, 135, 120, 150, 90, 60],
+    'Mumbai-Nagpur': [40, 45, 50, 42, 48, 30, 20]
+}).set_index('Day')
 
-# 5. DATA VISUALIZATION: WEEKLY CAPACITY TRENDS
-st.subheader(f"Weekly Capacity Forecast: {route} ({month})")
-weekly_data = pd.DataFrame({
-    'Week': ['Week 1', 'Week 2', 'Week 3', 'Week 4'],
-    'Free_Space_Predicted': [predicted_free_space + 5, predicted_free_space - 10, predicted_free_space + 2, predicted_free_space - 5],
-    'Expected_Demand': [30, 55, 40, 65]
-}).set_index('Week')
+st.line_chart(weekly_demand)
 
-st.line_chart(weekly_data)
-
-st.info(f"💡 **AI Strategy:** For {route} in {month}, the agent suggests batching non-fragile items in Week 1 to maximize the high predicted free space.")
+st.info("💡 **Strategy Insight:** The RL model suggests increasing the 'Mumbai-Pune' frequency on Saturdays to handle the weekend e-commerce surge while passenger seats are full but cargo holds are often under-utilized.")
